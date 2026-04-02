@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Job Queue Manager</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --success: #16a34a;
+      --danger: #dc2626;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-400: #9ca3af;
+      --gray-600: #4b5563;
+      --gray-800: #1f2937;
+      --radius: 8px;
+      --tap: 44px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--gray-50);
+      color: var(--gray-800);
+      min-height: 100vh;
+    }
+
+    /* ── Login ── */
+    #login-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 400px;
+      background: white;
+      border-radius: var(--radius);
+      padding: 32px 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+
+    .login-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      text-align: center;
+      color: var(--gray-800);
+    }
+
+    .form-group { margin-bottom: 16px; }
+
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--gray-600);
+      margin-bottom: 4px;
+    }
+
+    input[type="email"],
+    input[type="password"],
+    textarea {
+      width: 100%;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-size: 16px; /* prevents iOS zoom */
+      font-family: inherit;
+      color: var(--gray-800);
+      background: white;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input:focus, textarea:focus { border-color: var(--primary); }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: var(--tap);
+      padding: 0 16px;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 15px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+    }
+
+    .btn:disabled { opacity: 0.5; cursor: default; }
+
+    .btn-primary { background: var(--primary); color: white; width: 100%; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+
+    .btn-sm {
+      min-height: var(--tap);
+      min-width: var(--tap);
+      padding: 0 12px;
+      font-size: 13px;
+    }
+
+    .btn-ghost { background: transparent; color: var(--gray-600); }
+    .btn-ghost:hover { background: var(--gray-100); }
+
+    .btn-success { background: transparent; color: var(--success); }
+    .btn-success:hover { background: #dcfce7; }
+
+    .btn-danger { background: transparent; color: var(--danger); }
+    .btn-danger:hover { background: #fee2e2; }
+
+    /* ── App layout ── */
+    #app-screen {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .app-header {
+      background: white;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .app-title { font-size: 17px; font-weight: 600; }
+
+    /* ── Queue tabs ── */
+    .queue-tabs {
+      display: flex;
+      background: white;
+      border-bottom: 1px solid var(--gray-200);
+      position: sticky;
+      top: 56px;
+      z-index: 9;
+    }
+
+    .queue-tab {
+      flex: 1;
+      min-height: var(--tap);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--gray-400);
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+      font-family: inherit;
+    }
+
+    .queue-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+    /* ── Content ── */
+    .content {
+      flex: 1;
+      padding: 16px;
+      max-width: 700px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* ── Add-job form ── */
+    .add-job-form {
+      background: white;
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .add-job-form textarea {
+      min-height: 80px;
+      resize: vertical;
+      margin-bottom: 8px;
+    }
+
+    /* ── Filter pills ── */
+    .filter-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .filter-tab {
+      padding: 0 14px;
+      min-height: 36px;
+      border-radius: 20px;
+      border: 1px solid var(--gray-200);
+      background: white;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--gray-600);
+      cursor: pointer;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .filter-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+    /* ── Job list ── */
+    .job-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .job-card {
+      background: white;
+      border-radius: var(--radius);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      padding: 12px;
+      border-left: 3px solid var(--gray-200);
+      transition: opacity 0.15s;
+    }
+
+    .job-card.done { border-left-color: var(--success); opacity: 0.65; }
+
+    .job-header { display: flex; align-items: flex-start; gap: 8px; }
+
+    /* reorder column */
+    .reorder-btns { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+
+    .reorder-btn {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--gray-200);
+      border-radius: 4px;
+      background: transparent;
+      cursor: pointer;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--gray-600);
+      transition: background 0.15s;
+      font-family: inherit;
+    }
+
+    .reorder-btn:hover:not(:disabled) { background: var(--gray-100); }
+    .reorder-btn:disabled { opacity: 0.25; cursor: default; }
+
+    /* status toggle */
+    .status-btn {
+      flex-shrink: 0;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid var(--gray-400);
+      background: transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 2px;
+      font-size: 13px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .status-btn.done {
+      background: var(--success);
+      border-color: var(--success);
+      color: white;
+    }
+
+    /* job body */
+    .job-body { flex: 1; min-width: 0; }
+
+    .job-markdown {
+      font-size: 15px;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+
+    .job-markdown p { margin-bottom: 6px; }
+    .job-markdown p:last-child { margin-bottom: 0; }
+    .job-markdown h1, .job-markdown h2, .job-markdown h3 { margin-bottom: 4px; }
+    .job-markdown code { background: var(--gray-100); padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+    .job-markdown pre { background: var(--gray-100); padding: 10px; border-radius: 4px; overflow-x: auto; margin-bottom: 8px; }
+    .job-markdown pre code { background: none; padding: 0; }
+    .job-markdown ul, .job-markdown ol { padding-left: 20px; margin-bottom: 6px; }
+    .job-markdown a { color: var(--primary); }
+
+    .job-actions { display: flex; gap: 4px; margin-top: 8px; }
+
+    /* inline editor */
+    .job-edit-area {
+      width: 100%;
+      min-height: 80px;
+      resize: vertical;
+      margin-top: 10px;
+      font-family: ui-monospace, monospace;
+      font-size: 14px;
+    }
+
+    .job-edit-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+    /* misc */
+    .error-msg { color: var(--danger); font-size: 14px; margin-top: 8px; }
+    .empty-state { text-align: center; color: var(--gray-400); padding: 48px 0; font-size: 15px; }
+    .loading { text-align: center; color: var(--gray-400); padding: 32px 0; font-size: 14px; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════
+     LOGIN SCREEN
+═══════════════════════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1 class="login-title">Job Queue Manager</h1>
+    <div class="form-group">
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" placeholder="you@example.com" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="login-btn" onclick="handleLogin()">Sign In</button>
+    <p id="login-error" class="error-msg hidden"></p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     APP SCREEN
+═══════════════════════════════════════════════════ -->
+<div id="app-screen" class="hidden">
+  <header class="app-header">
+    <span class="app-title">Job Queues</span>
+    <button class="btn btn-ghost btn-sm" onclick="handleLogout()">Sign Out</button>
+  </header>
+
+  <div class="queue-tabs">
+    <button class="queue-tab active" id="tab-cowork" onclick="switchQueue('cowork')">Claude Cowork</button>
+    <button class="queue-tab" id="tab-code" onclick="switchQueue('code')">Claude Code</button>
+  </div>
+
+  <div class="content">
+    <div class="add-job-form">
+      <textarea id="new-job-body" placeholder="New job (markdown supported)…"></textarea>
+      <button class="btn btn-primary" id="add-job-btn" onclick="handleAddJob()">Add Job</button>
+      <p id="add-error" class="error-msg hidden"></p>
+    </div>
+
+    <div class="filter-tabs">
+      <button class="filter-tab active" id="filter-todo" onclick="setFilter('todo')">Todo</button>
+      <button class="filter-tab" id="filter-done" onclick="setFilter('done')">Done</button>
+      <button class="filter-tab" id="filter-all" onclick="setFilter('all')">All</button>
+    </div>
+
+    <div id="job-list" class="job-list">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================================================================
+// CONFIGURATION — paste your Supabase project values here
+// ================================================================
+const SUPABASE_URL  = 'https://ifzcegsompgglmxmqulc.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_bAQS3utniJH5IPAYIbeQsA_Ydv6FWmK';
+// ================================================================
+
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let currentQueue  = 'cowork';
+let currentFilter = 'todo';
+let jobs = [];          // all jobs for the current queue (all statuses)
+
+// ─── Auth ──────────────────────────────────────────────────────
+
+async function checkSession() {
+  const { data: { session } } = await db.auth.getSession();
+  session ? showApp() : showLogin();
+}
+
+async function handleLogin() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const btn      = document.getElementById('login-btn');
+  const errEl    = document.getElementById('login-error');
+
+  btn.disabled    = true;
+  btn.textContent = 'Signing in…';
+  errEl.classList.add('hidden');
+
+  const { error } = await db.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    errEl.textContent = error.message;
+    errEl.classList.remove('hidden');
+    btn.disabled    = false;
+    btn.textContent = 'Sign In';
+  } else {
+    showApp();
+  }
+}
+
+async function handleLogout() {
+  await db.auth.signOut();
+  showLogin();
+}
+
+function showLogin() {
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('app-screen').classList.add('hidden');
+}
+
+function showApp() {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app-screen').classList.remove('hidden');
+  loadJobs();
+}
+
+// ─── Queue & filter ────────────────────────────────────────────
+
+function switchQueue(queue) {
+  currentQueue = queue;
+  document.getElementById('tab-cowork').classList.toggle('active', queue === 'cowork');
+  document.getElementById('tab-code').classList.toggle('active', queue === 'code');
+  loadJobs();
+}
+
+function setFilter(filter) {
+  currentFilter = filter;
+  ['todo', 'done', 'all'].forEach(f =>
+    document.getElementById('filter-' + f).classList.toggle('active', f === filter)
+  );
+  renderJobs();
+}
+
+// ─── Data ──────────────────────────────────────────────────────
+
+async function loadJobs() {
+  document.getElementById('job-list').innerHTML = '<div class="loading">Loading…</div>';
+
+  const { data, error } = await db
+    .from('36074_jobs')
+    .select('*')
+    .eq('queue', currentQueue)
+    .order('position');
+
+  if (error) {
+    document.getElementById('job-list').innerHTML =
+      `<div class="error-msg">Error loading jobs: ${error.message}</div>`;
+    return;
+  }
+
+  jobs = data || [];
+  renderJobs();
+}
+
+function visibleJobs() {
+  return currentFilter === 'all' ? jobs : jobs.filter(j => j.status === currentFilter);
+}
+
+function renderJobs() {
+  const listEl   = document.getElementById('job-list');
+  const filtered = visibleJobs();
+
+  if (filtered.length === 0) {
+    const label = currentFilter === 'all' ? '' : currentFilter + ' ';
+    listEl.innerHTML = `<div class="empty-state">No ${label}jobs in this queue.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map((job, idx) => jobCardHTML(job, idx, filtered.length)).join('');
+}
+
+function jobCardHTML(job, idx, total) {
+  const isDone = job.status === 'done';
+  return `
+<div class="job-card ${isDone ? 'done' : ''}" id="job-${job.id}" data-id="${job.id}">
+  <div class="job-header">
+    <div class="reorder-btns">
+      <button class="reorder-btn" onclick="moveJob('${job.id}', -1)"
+        ${idx === 0 ? 'disabled' : ''} title="Move up">&#9650;</button>
+      <button class="reorder-btn" onclick="moveJob('${job.id}', 1)"
+        ${idx === total - 1 ? 'disabled' : ''} title="Move down">&#9660;</button>
+    </div>
+    <button class="status-btn ${isDone ? 'done' : ''}"
+      onclick="toggleStatus('${job.id}')"
+      title="${isDone ? 'Mark todo' : 'Mark done'}">
+      ${isDone ? '&#10003;' : ''}
+    </button>
+    <div class="job-body">
+      <div class="job-markdown" id="md-${job.id}">${marked.parse(job.body)}</div>
+      <div class="job-actions" id="actions-${job.id}">
+        <button class="btn btn-ghost btn-sm" onclick="startEdit('${job.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteJob('${job.id}')">Delete</button>
+      </div>
+      <div id="edit-${job.id}" class="hidden">
+        <textarea class="job-edit-area" id="edit-ta-${job.id}">${escapeHtml(job.body)}</textarea>
+        <div class="job-edit-actions">
+          <button class="btn btn-primary btn-sm" onclick="saveEdit('${job.id}')">Save</button>
+          <button class="btn btn-ghost btn-sm" onclick="cancelEdit('${job.id}')">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`;
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ─── Add job ───────────────────────────────────────────────────
+
+async function handleAddJob() {
+  const body   = document.getElementById('new-job-body').value.trim();
+  const btn    = document.getElementById('add-job-btn');
+  const errEl  = document.getElementById('add-error');
+
+  if (!body) return;
+
+  btn.disabled    = true;
+  btn.textContent = 'Adding…';
+  errEl.classList.add('hidden');
+
+  const maxPos = jobs.length > 0 ? Math.max(...jobs.map(j => j.position)) + 1 : 0;
+
+  const { error } = await db.from('36074_jobs').insert({
+    queue:    currentQueue,
+    body,
+    status:   'todo',
+    position: maxPos
+  });
+
+  btn.disabled    = false;
+  btn.textContent = 'Add Job';
+
+  if (error) {
+    errEl.textContent = error.message;
+    errEl.classList.remove('hidden');
+  } else {
+    document.getElementById('new-job-body').value = '';
+    loadJobs();
+  }
+}
+
+// ─── Edit job ──────────────────────────────────────────────────
+
+function startEdit(id) {
+  document.getElementById('actions-' + id).classList.add('hidden');
+  document.getElementById('edit-' + id).classList.remove('hidden');
+  document.getElementById('edit-ta-' + id).focus();
+}
+
+function cancelEdit(id) {
+  document.getElementById('edit-' + id).classList.add('hidden');
+  document.getElementById('actions-' + id).classList.remove('hidden');
+}
+
+async function saveEdit(id) {
+  const body = document.getElementById('edit-ta-' + id).value.trim();
+  if (!body) return;
+
+  const { error } = await db.from('36074_jobs')
+    .update({ body, updated_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) alert('Error saving: ' + error.message);
+  else loadJobs();
+}
+
+// ─── Delete job ────────────────────────────────────────────────
+
+async function deleteJob(id) {
+  if (!confirm('Delete this job?')) return;
+
+  const { error } = await db.from('36074_jobs').delete().eq('id', id);
+
+  if (error) alert('Error deleting: ' + error.message);
+  else loadJobs();
+}
+
+// ─── Toggle status ─────────────────────────────────────────────
+
+async function toggleStatus(id) {
+  const job = jobs.find(j => j.id === id);
+  if (!job) return;
+
+  const newStatus = job.status === 'todo' ? 'done' : 'todo';
+
+  const { error } = await db.from('36074_jobs')
+    .update({ status: newStatus, updated_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (!error) loadJobs();
+}
+
+// ─── Reorder ───────────────────────────────────────────────────
+
+async function moveJob(id, direction) {
+  const filtered = visibleJobs();
+  const idx      = filtered.findIndex(j => j.id === id);
+  const swapIdx  = idx + direction;
+
+  if (swapIdx < 0 || swapIdx >= filtered.length) return;
+
+  const jobA = filtered[idx];
+  const jobB = filtered[swapIdx];
+
+  // Swap their position values
+  const [posA, posB] = [jobA.position, jobB.position];
+
+  const [r1, r2] = await Promise.all([
+    db.from('36074_jobs').update({ position: posB, updated_at: new Date().toISOString() }).eq('id', jobA.id),
+    db.from('36074_jobs').update({ position: posA, updated_at: new Date().toISOString() }).eq('id', jobB.id)
+  ]);
+
+  if (r1.error) { alert('Error reordering: ' + r1.error.message); return; }
+  if (r2.error) { alert('Error reordering: ' + r2.error.message); return; }
+
+  loadJobs();
+}
+
+// ─── Keyboard shortcuts ────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('login-password').addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleLogin();
+  });
+
+  document.getElementById('new-job-body').addEventListener('keydown', e => {
+    // Cmd+Enter or Ctrl+Enter to submit
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddJob();
+  });
+
+  checkSession();
+});
+</script>
+</body>
+</html>
