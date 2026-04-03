@@ -552,9 +552,10 @@ function showLogin() {
   document.getElementById('app-screen').classList.add('hidden');
 }
 
-function showApp() {
+async function showApp() {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app-screen').classList.remove('hidden');
+  await loadUserSettings();
   loadJobs();
 }
 
@@ -884,7 +885,7 @@ function toggleSettings() {
   panel.classList.toggle('hidden');
 }
 
-function saveGitHubSettings() {
+async function saveGitHubSettings() {
   const username = document.getElementById('gh-username').value.trim();
   const token    = document.getElementById('gh-token').value.trim();
 
@@ -894,7 +895,42 @@ function saveGitHubSettings() {
   if (token) localStorage.setItem('gh_token', token);
   else localStorage.removeItem('gh_token');
 
+  // Persist to Supabase for cross-device sync
+  const { data: { user } } = await db.auth.getUser();
+  if (user) {
+    await db.from('36074_user_settings').upsert(
+      { user_id: user.id, gh_username: username || null, gh_token: token || null, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    );
+  }
+
   loadGitHubRepos(true);
+}
+
+async function loadUserSettings() {
+  // Fetch GitHub settings from Supabase (cross-device sync), fall back to localStorage
+  const { data: { user } } = await db.auth.getUser();
+  if (user) {
+    const { data } = await db.from('36074_user_settings')
+      .select('gh_username, gh_token')
+      .eq('user_id', user.id)
+      .single();
+
+    if (data) {
+      const username = data.gh_username || '';
+      const token    = data.gh_token    || '';
+      if (username) { localStorage.setItem('gh_username', username); document.getElementById('gh-username').value = username; }
+      if (token)    { localStorage.setItem('gh_token',    token);    document.getElementById('gh-token').value    = token;    }
+      if (username) { loadGitHubRepos(false); return; }
+    }
+  }
+
+  // Fall back to localStorage (first load before Supabase has settings)
+  const savedUsername = localStorage.getItem('gh_username');
+  const savedToken    = localStorage.getItem('gh_token');
+  if (savedUsername) document.getElementById('gh-username').value = savedUsername;
+  if (savedToken)    document.getElementById('gh-token').value    = savedToken;
+  if (savedUsername) loadGitHubRepos(false);
 }
 
 async function loadGitHubRepos(showStatus = false) {
@@ -965,15 +1001,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Cmd+Enter or Ctrl+Enter to submit
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddJob();
   });
-
-  // Restore saved GitHub settings into the settings fields
-  const savedUsername = localStorage.getItem('gh_username');
-  const savedToken    = localStorage.getItem('gh_token');
-  if (savedUsername) document.getElementById('gh-username').value = savedUsername;
-  if (savedToken)    document.getElementById('gh-token').value    = savedToken;
-
-  // Silently pre-load repos if settings are already saved
-  if (savedUsername) loadGitHubRepos(false);
 
   checkSession();
 });

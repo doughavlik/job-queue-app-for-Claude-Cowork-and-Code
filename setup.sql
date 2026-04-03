@@ -77,3 +77,22 @@ CREATE POLICY "36074_authenticated_full_access" ON "36074_jobs"
 --   Headers: apikey: <service_role_key>, Authorization: Bearer <service_role_key>,
 --            Content-Type: application/json, Prefer: return=minimal
 -- ================================================================
+
+-- ================================================================
+-- User settings table (cross-device GitHub credential sync)
+-- ================================================================
+
+-- 6. Per-user settings (GitHub username + PAT for cross-device sync)
+CREATE TABLE IF NOT EXISTS "36074_user_settings" (
+  user_id    uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  gh_username text,
+  gh_token    text,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE "36074_user_settings" ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "36074_user_settings_own" ON "36074_user_settings"
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
