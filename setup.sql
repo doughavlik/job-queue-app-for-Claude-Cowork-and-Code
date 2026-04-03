@@ -7,14 +7,27 @@
 
 -- 1. Create the jobs table
 CREATE TABLE IF NOT EXISTS "36074_jobs" (
-  id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  queue      text        NOT NULL CHECK (queue IN ('cowork', 'code')),
-  body       text        NOT NULL,
-  status     text        NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'done')),
-  position   integer     NOT NULL DEFAULT 0,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  queue              text        NOT NULL CHECK (queue IN ('cowork', 'code')),
+  body               text        NOT NULL,
+  status             text        NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'done', 'on-hold')),
+  position           integer     NOT NULL DEFAULT 0,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  completed_at       timestamptz,
+  completion_summary text,
+  github_repo        text
 );
+
+-- 1b. Add new columns to existing tables (idempotent migrations)
+ALTER TABLE "36074_jobs" ADD COLUMN IF NOT EXISTS completed_at       timestamptz;
+ALTER TABLE "36074_jobs" ADD COLUMN IF NOT EXISTS completion_summary text;
+ALTER TABLE "36074_jobs" ADD COLUMN IF NOT EXISTS github_repo        text;
+
+-- 1c. Update status CHECK constraint to include 'on-hold'
+ALTER TABLE "36074_jobs" DROP CONSTRAINT IF EXISTS "36074_jobs_status_check";
+ALTER TABLE "36074_jobs" ADD CONSTRAINT "36074_jobs_status_check"
+  CHECK (status IN ('todo', 'done', 'on-hold'));
 
 -- 2. Index for fast queue reads (used by Claude scheduled tasks)
 CREATE INDEX IF NOT EXISTS "36074_jobs_queue_status_position"

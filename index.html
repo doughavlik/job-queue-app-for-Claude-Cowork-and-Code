@@ -14,6 +14,7 @@
       --primary-hover: #1d4ed8;
       --success: #16a34a;
       --danger: #dc2626;
+      --warning: #d97706;
       --gray-50: #f9fafb;
       --gray-100: #f3f4f6;
       --gray-200: #e5e7eb;
@@ -232,6 +233,7 @@
     }
 
     .job-card.done { border-left-color: var(--success); opacity: 0.65; }
+    .job-card.on-hold { border-left-color: var(--warning); opacity: 0.8; }
 
     .job-header { display: flex; align-items: flex-start; gap: 8px; }
 
@@ -317,6 +319,101 @@
     .empty-state { text-align: center; color: var(--gray-400); padding: 48px 0; font-size: 15px; }
     .loading { text-align: center; color: var(--gray-400); padding: 32px 0; font-size: 14px; }
     .hidden { display: none !important; }
+
+    /* ── Completion info ── */
+    .job-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--gray-400);
+    }
+
+    .job-meta-repo {
+      color: var(--primary);
+      font-weight: 500;
+    }
+
+    .job-completed-at { font-style: italic; }
+
+    .job-summary {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: var(--gray-100);
+      border-radius: 4px;
+      font-size: 13px;
+      color: var(--gray-600);
+      border-left: 3px solid var(--success);
+    }
+
+    .job-summary-toggle {
+      background: none;
+      border: none;
+      color: var(--primary);
+      font-size: 12px;
+      cursor: pointer;
+      padding: 0;
+      font-family: inherit;
+      margin-top: 4px;
+    }
+
+    /* ── GitHub repo select ── */
+    .repo-select-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    select {
+      flex: 1;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-size: 16px;
+      font-family: inherit;
+      color: var(--gray-800);
+      background: white;
+      outline: none;
+      transition: border-color 0.15s;
+      -webkit-appearance: none;
+    }
+
+    select:focus { border-color: var(--primary); }
+
+    /* ── Settings panel ── */
+    .settings-panel {
+      background: white;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 16px;
+    }
+
+    .settings-panel h2 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .settings-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .settings-row .form-group {
+      flex: 1;
+      min-width: 140px;
+      margin-bottom: 0;
+    }
+
+    .settings-status {
+      font-size: 12px;
+      color: var(--success);
+      margin-top: 4px;
+    }
   </style>
 </head>
 <body>
@@ -346,8 +443,28 @@
 <div id="app-screen" class="hidden">
   <header class="app-header">
     <span class="app-title">Job Queues</span>
-    <button class="btn btn-ghost btn-sm" onclick="handleLogout()">Sign Out</button>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="btn btn-ghost btn-sm" id="settings-toggle-btn" onclick="toggleSettings()">⚙ GitHub</button>
+      <button class="btn btn-ghost btn-sm" onclick="handleLogout()">Sign Out</button>
+    </div>
   </header>
+
+  <!-- Settings panel (GitHub config) -->
+  <div id="settings-panel" class="settings-panel hidden">
+    <h2>GitHub Settings</h2>
+    <div class="settings-row">
+      <div class="form-group">
+        <label for="gh-username">GitHub Username</label>
+        <input type="text" id="gh-username" placeholder="octocat" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label for="gh-token">Personal Access Token</label>
+        <input type="password" id="gh-token" placeholder="github_pat_…" autocomplete="off">
+      </div>
+      <button class="btn btn-primary btn-sm" style="min-width:80px;align-self:flex-end;" onclick="saveGitHubSettings()">Save &amp; Load</button>
+    </div>
+    <p id="gh-status" class="settings-status hidden"></p>
+  </div>
 
   <div class="queue-tabs">
     <button class="queue-tab active" id="tab-cowork" onclick="switchQueue('cowork')">Claude Cowork</button>
@@ -357,12 +474,19 @@
   <div class="content">
     <div class="add-job-form">
       <textarea id="new-job-body" placeholder="New job (markdown supported)…"></textarea>
+      <div class="repo-select-row">
+        <select id="new-job-repo">
+          <option value="">— No repo —</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="loadGitHubRepos(true)" title="Refresh repos">↺</button>
+      </div>
       <button class="btn btn-primary" id="add-job-btn" onclick="handleAddJob()">Add Job</button>
       <p id="add-error" class="error-msg hidden"></p>
     </div>
 
     <div class="filter-tabs">
       <button class="filter-tab active" id="filter-todo" onclick="setFilter('todo')">Todo</button>
+      <button class="filter-tab" id="filter-on-hold" onclick="setFilter('on-hold')">On Hold</button>
       <button class="filter-tab" id="filter-done" onclick="setFilter('done')">Done</button>
       <button class="filter-tab" id="filter-all" onclick="setFilter('all')">All</button>
     </div>
@@ -444,7 +568,7 @@ function switchQueue(queue) {
 
 function setFilter(filter) {
   currentFilter = filter;
-  ['todo', 'done', 'all'].forEach(f =>
+  ['todo', 'on-hold', 'done', 'all'].forEach(f =>
     document.getElementById('filter-' + f).classList.toggle('active', f === filter)
   );
   renderJobs();
@@ -472,7 +596,8 @@ async function loadJobs() {
 }
 
 function visibleJobs() {
-  return currentFilter === 'all' ? jobs : jobs.filter(j => j.status === currentFilter);
+  if (currentFilter === 'all') return jobs;
+  return jobs.filter(j => j.status === currentFilter);
 }
 
 function renderJobs() {
@@ -480,7 +605,8 @@ function renderJobs() {
   const filtered = visibleJobs();
 
   if (filtered.length === 0) {
-    const label = currentFilter === 'all' ? '' : currentFilter + ' ';
+    const labelMap = { 'todo': 'todo ', 'on-hold': 'on-hold ', 'done': 'done ', 'all': '' };
+    const label = labelMap[currentFilter] || '';
     listEl.innerHTML = `<div class="empty-state">No ${label}jobs in this queue.</div>`;
     return;
   }
@@ -489,9 +615,58 @@ function renderJobs() {
 }
 
 function jobCardHTML(job, idx, total) {
-  const isDone = job.status === 'done';
+  const isDone   = job.status === 'done';
+  const isOnHold = job.status === 'on-hold';
+  const isTodo   = job.status === 'todo';
+
+  // Meta line: repo + completion time
+  let metaHTML = '';
+  const metaParts = [];
+  if (job.github_repo) {
+    metaParts.push(`<span class="job-meta-repo">&#128196; ${escapeHtml(job.github_repo)}</span>`);
+  }
+  if (isDone && job.completed_at) {
+    const dt = new Date(job.completed_at);
+    const formatted = dt.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    metaParts.push(`<span class="job-completed-at">&#10003; Completed ${formatted}</span>`);
+  }
+  if (isOnHold) {
+    metaParts.push(`<span style="color:var(--warning);font-weight:500;">&#9208; On Hold</span>`);
+  }
+  if (metaParts.length) {
+    metaHTML = `<div class="job-meta">${metaParts.join('')}</div>`;
+  }
+
+  // Completion summary
+  let summaryHTML = '';
+  if (isDone && job.completion_summary) {
+    const summaryId = `summary-${job.id}`;
+    summaryHTML = `
+      <button class="job-summary-toggle" onclick="toggleSummary('${job.id}')">&#9656; Show Claude's summary</button>
+      <div id="${summaryId}" class="job-summary hidden">${marked.parse(job.completion_summary)}</div>`;
+  }
+
+  // Edit-mode repo dropdown
+  const repoOptionsForEdit = buildRepoOptions(job.github_repo || '');
+
+  // Status button: done jobs toggle back to todo; on-hold and todo jobs can be marked done
+  const statusBtnClass = isDone ? 'done' : '';
+  const statusBtnTitle = isDone ? 'Mark todo' : 'Mark done';
+  const statusBtnIcon  = isDone ? '&#10003;' : '';
+
+  // Extra action buttons based on status
+  let extraActions = '';
+  if (isTodo) {
+    extraActions = `<button class="btn btn-ghost btn-sm" onclick="holdJob('${job.id}')" title="Put on hold">Hold</button>`;
+  } else if (isOnHold) {
+    extraActions = `<button class="btn btn-ghost btn-sm" onclick="resumeJob('${job.id}')" title="Resume to todo">Resume</button>`;
+  }
+
+  // Card CSS class
+  const cardClass = isDone ? 'done' : (isOnHold ? 'on-hold' : '');
+
   return `
-<div class="job-card ${isDone ? 'done' : ''}" id="job-${job.id}" data-id="${job.id}">
+<div class="job-card ${cardClass}" id="job-${job.id}" data-id="${job.id}">
   <div class="job-header">
     <div class="reorder-btns">
       <button class="reorder-btn" onclick="moveJob('${job.id}', -1)"
@@ -499,19 +674,25 @@ function jobCardHTML(job, idx, total) {
       <button class="reorder-btn" onclick="moveJob('${job.id}', 1)"
         ${idx === total - 1 ? 'disabled' : ''} title="Move down">&#9660;</button>
     </div>
-    <button class="status-btn ${isDone ? 'done' : ''}"
+    <button class="status-btn ${statusBtnClass}"
       onclick="toggleStatus('${job.id}')"
-      title="${isDone ? 'Mark todo' : 'Mark done'}">
-      ${isDone ? '&#10003;' : ''}
+      title="${statusBtnTitle}">
+      ${statusBtnIcon}
     </button>
     <div class="job-body">
       <div class="job-markdown" id="md-${job.id}">${marked.parse(job.body)}</div>
+      ${metaHTML}
+      ${summaryHTML}
       <div class="job-actions" id="actions-${job.id}">
+        ${extraActions}
         <button class="btn btn-ghost btn-sm" onclick="startEdit('${job.id}')">Edit</button>
         <button class="btn btn-danger btn-sm" onclick="deleteJob('${job.id}')">Delete</button>
       </div>
       <div id="edit-${job.id}" class="hidden">
         <textarea class="job-edit-area" id="edit-ta-${job.id}">${escapeHtml(job.body)}</textarea>
+        <div class="repo-select-row" style="margin-top:8px;">
+          <select id="edit-repo-${job.id}">${repoOptionsForEdit}</select>
+        </div>
         <div class="job-edit-actions">
           <button class="btn btn-primary btn-sm" onclick="saveEdit('${job.id}')">Save</button>
           <button class="btn btn-ghost btn-sm" onclick="cancelEdit('${job.id}')">Cancel</button>
@@ -520,6 +701,26 @@ function jobCardHTML(job, idx, total) {
     </div>
   </div>
 </div>`;
+}
+
+function toggleSummary(id) {
+  const el = document.getElementById('summary-' + id);
+  const btn = el.previousElementSibling;
+  const hidden = el.classList.toggle('hidden');
+  btn.textContent = (hidden ? '▶' : '▼') + ' ' + (hidden ? 'Show' : 'Hide') + " Claude's summary";
+}
+
+function buildRepoOptions(selectedRepo) {
+  let html = `<option value="">— No repo —</option>`;
+  for (const repo of githubRepos) {
+    const sel = repo === selectedRepo ? ' selected' : '';
+    html += `<option value="${escapeHtml(repo)}"${sel}>${escapeHtml(repo)}</option>`;
+  }
+  // If selected repo isn't in list (e.g. list not loaded), still show it
+  if (selectedRepo && !githubRepos.includes(selectedRepo)) {
+    html += `<option value="${escapeHtml(selectedRepo)}" selected>${escapeHtml(selectedRepo)}</option>`;
+  }
+  return html;
 }
 
 function escapeHtml(str) {
@@ -545,11 +746,14 @@ async function handleAddJob() {
 
   const maxPos = jobs.length > 0 ? Math.max(...jobs.map(j => j.position)) + 1 : 0;
 
+  const github_repo = document.getElementById('new-job-repo').value || null;
+
   const { error } = await db.from('36074_jobs').insert({
     queue:    currentQueue,
     body,
     status:   'todo',
-    position: maxPos
+    position: maxPos,
+    github_repo
   });
 
   btn.disabled    = false;
@@ -581,9 +785,13 @@ async function saveEdit(id) {
   const body = document.getElementById('edit-ta-' + id).value.trim();
   if (!body) return;
 
-  const { error } = await db.from('36074_jobs')
-    .update({ body, updated_at: new Date().toISOString() })
-    .eq('id', id);
+  const repoEl = document.getElementById('edit-repo-' + id);
+  const github_repo = repoEl ? (repoEl.value || null) : undefined;
+
+  const updates = { body, updated_at: new Date().toISOString() };
+  if (github_repo !== undefined) updates.github_repo = github_repo;
+
+  const { error } = await db.from('36074_jobs').update(updates).eq('id', id);
 
   if (error) alert('Error saving: ' + error.message);
   else loadJobs();
@@ -606,13 +814,38 @@ async function toggleStatus(id) {
   const job = jobs.find(j => j.id === id);
   if (!job) return;
 
-  const newStatus = job.status === 'todo' ? 'done' : 'todo';
+  // done → todo; todo or on-hold → done
+  const newStatus = job.status === 'done' ? 'todo' : 'done';
+  const now = new Date().toISOString();
+  const updates = { status: newStatus, updated_at: now };
 
-  const { error } = await db.from('36074_jobs')
-    .update({ status: newStatus, updated_at: new Date().toISOString() })
-    .eq('id', id);
+  if (newStatus === 'done') {
+    updates.completed_at = now;
+  } else {
+    updates.completed_at = null;
+  }
+
+  const { error } = await db.from('36074_jobs').update(updates).eq('id', id);
 
   if (!error) loadJobs();
+}
+
+async function holdJob(id) {
+  const { error } = await db.from('36074_jobs')
+    .update({ status: 'on-hold', updated_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) alert('Error putting job on hold: ' + error.message);
+  else loadJobs();
+}
+
+async function resumeJob(id) {
+  const { error } = await db.from('36074_jobs')
+    .update({ status: 'todo', updated_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) alert('Error resuming job: ' + error.message);
+  else loadJobs();
 }
 
 // ─── Reorder ───────────────────────────────────────────────────
@@ -641,6 +874,85 @@ async function moveJob(id, direction) {
   loadJobs();
 }
 
+// ─── GitHub repo integration ───────────────────────────────────
+
+let githubRepos = [];
+
+function toggleSettings() {
+  const panel = document.getElementById('settings-panel');
+  panel.classList.toggle('hidden');
+}
+
+function saveGitHubSettings() {
+  const username = document.getElementById('gh-username').value.trim();
+  const token    = document.getElementById('gh-token').value.trim();
+
+  if (username) localStorage.setItem('gh_username', username);
+  else localStorage.removeItem('gh_username');
+
+  if (token) localStorage.setItem('gh_token', token);
+  else localStorage.removeItem('gh_token');
+
+  loadGitHubRepos(true);
+}
+
+async function loadGitHubRepos(showStatus = false) {
+  const username = localStorage.getItem('gh_username');
+  if (!username) return;
+
+  const token   = localStorage.getItem('gh_token');
+  const headers = { Accept: 'application/vnd.github+json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+
+  const statusEl = document.getElementById('gh-status');
+  if (showStatus && statusEl) {
+    statusEl.textContent = 'Loading repos…';
+    statusEl.classList.remove('hidden');
+  }
+
+  try {
+    const resp = await fetch(
+      `https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator`,
+      { headers }
+    );
+
+    if (!resp.ok) {
+      // Fall back to public repos if token auth fails
+      const pub = await fetch(
+        `https://api.github.com/users/${encodeURIComponent(username)}/repos?per_page=100&sort=updated`,
+        { headers: { Accept: 'application/vnd.github+json' } }
+      );
+      if (!pub.ok) throw new Error('GitHub API error ' + pub.status);
+      githubRepos = (await pub.json()).map(r => r.full_name).sort();
+    } else {
+      githubRepos = (await resp.json()).map(r => r.full_name).sort();
+    }
+
+    populateRepoDropdowns();
+
+    if (showStatus && statusEl) {
+      statusEl.textContent = `Loaded ${githubRepos.length} repos.`;
+      setTimeout(() => statusEl.classList.add('hidden'), 3000);
+    }
+  } catch (e) {
+    if (showStatus && statusEl) {
+      statusEl.textContent = 'Error: ' + e.message;
+      statusEl.style.color = 'var(--danger)';
+    }
+  }
+}
+
+function populateRepoDropdowns() {
+  // Populate the add-job dropdown
+  const sel = document.getElementById('new-job-repo');
+  if (sel) {
+    const current = sel.value;
+    sel.innerHTML = buildRepoOptions(current);
+  }
+  // Re-render jobs so edit dropdowns pick up new list
+  renderJobs();
+}
+
 // ─── Keyboard shortcuts ────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -652,6 +964,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Cmd+Enter or Ctrl+Enter to submit
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddJob();
   });
+
+  // Restore saved GitHub settings into the settings fields
+  const savedUsername = localStorage.getItem('gh_username');
+  const savedToken    = localStorage.getItem('gh_token');
+  if (savedUsername) document.getElementById('gh-username').value = savedUsername;
+  if (savedToken)    document.getElementById('gh-token').value    = savedToken;
+
+  // Silently pre-load repos if settings are already saved
+  if (savedUsername) loadGitHubRepos(false);
 
   checkSession();
 });
