@@ -599,7 +599,11 @@ async function loadJobs() {
 
 function visibleJobs() {
   if (currentFilter === 'all') return jobs;
-  return jobs.filter(j => j.status === currentFilter);
+  const filtered = jobs.filter(j => j.status === currentFilter);
+  if (currentFilter === 'done') {
+    return filtered.slice().sort((a, b) => new Date(b.completed_at || 0) - new Date(a.completed_at || 0));
+  }
+  return filtered;
 }
 
 function renderJobs() {
